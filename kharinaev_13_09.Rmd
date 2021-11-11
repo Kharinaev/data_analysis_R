@@ -10,7 +10,6 @@ output:
 
 
 ### Dataset description
-  русский текст
   Dataset contains info about stocks of S&P 500 companies (date, open, high, low, close prices, volume, company name (ticker))
 
 ### 1.1 Matrix
