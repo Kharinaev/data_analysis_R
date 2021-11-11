@@ -1,0 +1,137 @@
+---
+title: "Харинаев 04.10.21"
+output:
+  html_document:
+    df_print: paged
+---
+
+## 1. Задания из комментариев к файлу с семинара
+### 1.1 mtcars
+
+```{r}
+data(mtcars)
+mtcars$lpk <- sapply(mtcars$mpg, FUN = function(x){100*3.785/(x*1.6)})
+mtcars.ordered <- mtcars[order(mtcars$lpk),]
+dotchart(mtcars.ordered$lpk, labels = row.names(mtcars.ordered),
+          main="Расход топлива на 100 километров, л",
+          xlab="Значение", cex = 0.6)
+```
+
+### 1.2 Сортировка автомобилей по лошадинным силам
+
+```{r}
+x <- mtcars[order(mtcars$hp, decreasing=TRUE),]
+x$cyl <- factor(x$cyl)
+x$color[x$cyl==8] <- 1
+x$color[x$cyl==6] <- 2
+x$color[x$cyl==4] <- 3
+dotchart(x$hp, labels = row.names(x),
+         groups = x$cyl, gcolor = "black",
+         main="Мощность двигателей",
+         xlab="Лошадинные силы", cex = 0.6, color = x$color)
+```
+
+## 2. `dotchart()` и `boxplot()` + `stripchart()`
+### 2.1 `dotchart()`
+
+Рассмотрим динамику цен на акции компании Chevron, специализирующейся на добыче нефти, за ноябрь-декабрь 2014 года. В это время цена на нефть Brent упала более, чем на 30%
+
+```{r}
+data <- read.csv(file='..\\dataset.csv')
+data$date <- as.Date(data$date)
+```
+```{r}
+chevron <- subset(data, data['Name'] == 'CVX')
+chevron$mean <- (chevron$open + chevron$close)/2
+chevron$avl <- chevron$volume * chevron$mean
+chevron.sample <- subset(chevron, chevron$date <= '2014-12-15' & chevron$date >= '2014-11-01')
+dotchart(chevron.sample$mean, labels=chevron.sample$date, cex=0.6, main='Динамика цен акций компании Chevron за ноябрь-декарь 2014 года', xlab='Цена, $')
+```
+### 2.2 `boxplot()` + `stripchart()`
+
+Рапределение цен 2-х нефтянных компаний Chevron и Occidental Petroleum за вторую половину 2014 года 
+
+```{r}
+data$mean <- (data$open + data$close)/2
+oxy.cvx <- subset(data, (data['Name'] == 'OXY' | data['Name'] == 'CVX') & data$date <= '2014-12-31' & data$date >= '2014-06-01')
+boxplot(mean ~ Name, data=oxy.cvx, col=c('deepskyblue3','tomato3'), names=c('CVX', 'OXY'), ylab = 'цена, $', xlab='Компания, тикер')
+stripchart(mean ~ Name, add=TRUE, data=oxy.cvx, method="jitter", pch=1, vertical=TRUE, col=c('tomato3','deepskyblue3'))
+legend('topright', legend=c('Chevron', 'Occidental Petroleum'), fill=c('deepskyblue3','tomato3'))
+```
+
+## 3. Критерий Граббса и Q-тест Диксона
+### 3.1 Критерий Граббса
+
+Нормализуем данные и применим критерий Граббса
+```{r}
+library(outliers)
+chevron$norm <- sapply(chevron$open,FUN=function(x){(x-mean(chevron$open))/(sd(chevron$open)*sqrt(nrow(chevron)))})
+outlier <- grubbs.test(chevron$norm)
+G <- data.frame(outlier['statistic'])[1,'statistic']
+value <-  - G*sd(chevron$norm) - mean(chevron$norm)
+col_grubbs <- rep('green', times=nrow(chevron))
+if ((min(chevron$norm) - value) < 0.0000001){
+  col_grubbs[which.min(chevron$norm)] <- 'red'
+}
+plot(chevron$norm, col=col_grubbs)
+```
+
+Красным цветом обозначени выброс по критерию Граббса
+
+### 3.2 Q-тест Диксона
+```{r}
+sample <- chevron$norm[811:840]
+dixon.test(sample)
+```
+
+```{r}
+ind <- Position(f=function(x){x<-0.0140226 & x>-0.0140227}, sample)
+color_dixon <- rep('green', times=30)
+color_dixon[ind] <- 'red'
+plot(sample, col=color_dixon)
+```
+
+Красным цветом указан выброс по Q критерию Диксона
+
+## 4. Отсутствующие значения
+### 4.1 `mice()`
+```{r}
+library(mice)
+cvx <- subset(data, data['Name'] == 'CVX' & data$date <= '2014-12-31' & data$date >= '2014-06-01')
+sub <- subset(cvx, select=c('open', 'close'))
+deleted <- sample(1:50, 5)
+for (i in deleted){
+  sub$open[i] <- NA
+}
+filled <- mice(sub)
+```
+
+Сравним удаленное значение и восстановленное:
+
+```{r}
+col_fil <- rep('green', times=nrow(sub))
+for (i in deleted){
+  col_fil[i] <- 'red'
+}
+plot(complete(filled)$open[1:50], col=col_fil, ylab='цена, $', xlab='индекс')
+points(cvx$open[1:50], pch=4)
+```
+
+## 5. Выявление аномалий в данных
+### 5.1 Rule 1.5*IQR 
+
+Все значение, находящиеся выше, чем Q3+1.5IQR, или ниже, чем Q1-1.5IQR, считаются выбросами (Q3, Q1 - 3-й и 1-й квантили, IQR - интерквантильный размах)
+
+```{r}
+x <- chevron$open
+Q3 <- quantile(x,0.75)
+Q1 <- quantile(x,0.25)
+bottom <- Q1 - 1.5*IQR(x)
+top <- Q3 + 1.5*IQR(x)
+col_IQR <- rep('green', times=length(x))
+col_IQR[x<bottom | x>top] <- 'red'
+plot(x, col=col_IQR, ylim=c(70,150))
+abline(h=bottom, col='blue')
+abline(h=top, col='violet')
+legend('bottomleft', legend=c('верхняя граница', 'нижняя граница', 'выбросы'), fill=c('violet','blue','red'))
+```
