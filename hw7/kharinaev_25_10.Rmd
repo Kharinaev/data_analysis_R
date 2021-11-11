@@ -1,0 +1,269 @@
+---
+title: "Харинаев Артём 316 группа 25.10.21"
+output:
+  html_document:
+    df_print: paged
+---
+
+# 1. Задания из файла с семинара
+
+```{r}
+drug <- array(c(11, 10, 25, 27,
+                16, 22, 4, 10,
+                14, 7, 5, 12,
+                2, 1, 14, 16,
+                6, 0, 11, 12,
+                1, 0, 10, 10,
+                1, 1, 4, 8,
+                4, 6, 2, 1),
+              dim = c(2, 2, 8),
+              dimnames = list(
+              Group = c("Препарат", "Контроль"),
+              Response = c("Успешно", "Неудачно"),
+              Center = c("1", "2", "3", "4", "5", "6", "7", "8")))
+
+library(reshape)
+
+#чуть подправим функцию, чтобы не появлялось предупреждение
+meltnew <- reshape::melt.matrix
+body(meltnew)[8][[1]] <- 'dn[char] <- lapply(dn[char], type.convert, as.is = TRUE)' 
+
+drug.df <- meltnew(drug, varnames = names(dimnames(drug)))
+
+#Пересчитаем процентные соотношения по группам в клиниках
+library(dplyr)
+drug_per <- group_by(drug.df, Group,Center) %>% transmute(Response, percent = value/sum(value))
+
+library(ggplot2)
+p <- ggplot(data = drug_per, aes(x = Center, y = percent,
+                                fill = Response))+xlab("Клиника")+ylab("Доля")
+p + geom_bar(stat = "identity", position = "dodge") + facet_grid(Group~.) + scale_x_discrete(limits=factor(1:8))
+```
+
+# 2. Корреляция в собственных данных
+
+## 2.1 Коэффициент корреляции Пирсона
+
+```{r}
+data <- read.csv(file='..\\dataset.csv')
+data$date <- as.Date(data$date)
+data$year <- as.numeric(format(data$date, format='%Y'))
+bac <- subset(data, data$Name=='BAC')
+wfc <- subset(data, data$Name=='WFC')
+```
+
+```{r}
+plot(1:1259, bac$open, type='l', col='red', ylim=c(0,65), 
+     main = 'Bank of America (BAC) и Wells Fargo (WFC)',
+     xlab='', ylab='Стоимость, $')
+lines(1:1259, wfc$open, col='blue')
+legend('bottomright', legend=c('BAC', 'WFC'), fill=c('red', 'blue'))
+```
+
+Условия применимости критерия:
+
+1.  данные близки к нормальному распределению
+2.  длины выборок равны
+
+Нормальность данных
+
+```{r}
+library(nortest)
+```
+```{r}
+normalize <- function (set, col, year, top, bottom){ 
+  set_year <-  set[col][set['year']==year]
+  set_norm <- sapply(set_year, FUN=function (x) {(x-mean(set_year))/var(set_year)})
+  set_norm_q <- set_norm[(set_norm <= quantile(set_norm, top)) &
+                       (set_norm >= quantile(set_norm, bottom))]
+  set_norm_q
+}
+```
+
+
+```{r}
+bac_open_n <- normalize(bac, 'open', 2015, 0.6, 0.3)
+wfc_open_n <- normalize(wfc, 'open', 2015, 0.7, 0.4)
+lillie.test(bac_open_n)
+lillie.test(wfc_open_n)
+```
+
+p-value достаточно велико, данные скорее всего близки к нормальному распределению
+
+Рассмотрим корреляцию цен акций компаний Bank of America (BAC) и Wells Fargo (WFC)
+
+```{r}
+if (length(bac_open_n) != length(wfc_open_n)){
+  len <- min(length(bac_open_n), length(wfc_open_n))
+  bac_open_n <- bac_open_n[1:len]
+  wfc_open_n <- wfc_open_n[1:len]
+}
+cor.test(bac_open_n, wfc_open_n)
+```
+
+p-value достаточно велико (20%), значит нулевую гипотезу о некоррелированности величин нельзя отвергнуть с уверенностью, возможно, величины некоррелированы, однако вычисленный коэффициент корреляции не равен 0
+
+Теперь рассмотрим корреляцию цен Bank of America (BAC) и Kellogg (K) (компания специализируется на производстве сухих завтраков и продуктов питания быстрого приготовления)
+
+```{r}
+kellogg <- subset(data, data$Name=='K')
+kellogg_open_n <- normalize(kellogg, 'open', 2015, 0.7, 0.4)
+lillie.test(kellogg_open_n)
+```
+
+p-value достаточно велико, данные скорее всего близки к нормальному распределению
+
+```{r}
+if (length(bac_open_n) != length(kellogg_open_n)){
+  len <- min(length(bac_open_n), length(kellogg_open_n))
+  bac_open_n <- bac_open_n[1:len]
+  kellogg_open_n <- kellogg_open_n[1:len]
+}
+cor.test(bac_open_n, kellogg_open_n)
+```
+
+Коэффициент корреляции мал, а p-value недостаточно мало, это значит, что нельзя отвергнуть гипотезу о некоррелированности этих величин полагаясь на этот тест, и скорее всего цены не коррелированы. Что довольно логично, т.к. компании взяты из разных секторов
+
+Рассмотрим корреляцию цены и объема продаж
+
+```{r}
+bac_vol_n <- normalize(bac, 'volume', 2015, 0.6, 0.3)
+lillie.test(bac_vol_n)
+```
+
+p-value достаточно велико, данные скорее всего близки к нормальному распределению
+
+```{r}
+if (length(bac_open_n) != length(bac_vol_n)){
+  len <- min(length(bac_open_n), length(bac_vol_n))
+  bac_open_n <- bac_open_n[1:len]
+  bac_vol_n <- bac_vol_n[1:len]
+}
+cor.test(bac_open_n, bac_vol_n)
+```
+
+p-value достаточно велико, нельзя отвергнуть гипотезу о некоррелированности данных. 
+Однако, можно заметить, что коэффициент корреляции отрицательный, что логично, т.к. при низкой цене ликвидность наоборот повышается
+
+## 2.2 Коэффициент корреляции Спирмена
+
+Т.к. критерий ранговый, то для корректного вычисления p-value, необходимы данные без повторений
+
+```{r}
+bac_uniq <- bac_open_n[!duplicated(bac_open_n) & !duplicated(wfc_open_n)]
+wfc_uniq <- wfc_open_n[!duplicated(bac_open_n) & !duplicated(wfc_open_n)] #длины выборок равны
+lillie.test(bac_uniq)
+lillie.test(wfc_uniq)
+```
+
+p-value достаточно велико, данные скорее всего близки к нормальному распределению
+
+```{r}
+cor.test(bac_uniq, wfc_uniq, method='spearman')
+```
+
+p-value велико, нулевую гипотезу нельзя отвергнуть, полагаясь на этот тест
+
+## 2.3 Коэффициент корреляции Кендалла
+
+Т.к. критерий ранговый, то для корректного вычисления p-value, необходимы данные без повторений
+
+```{r}
+cor.test(bac_uniq, wfc_uniq, method='kendall')
+```
+
+p-value велико, нулевую гипотезу нельзя отвергнуть, полагаясь на этот тест
+
+# 3.
+
+## 3.1 Метод Хи-квадрат
+
+Создадим таблицу сопряженности. По строкам расположим банковские компании. По столбцам - годы. В ячейках - кол-во дней в году, когда цена акции увеличивается
+
+```{r}
+library(reshape2)
+data$year <- as.numeric(format(data$date, format='%Y'))
+data$day_profit <- data$close > data$open
+banks <- subset(data, (data$Name=='JPM' | data$Name == 'BAC' | data$Name == 'WFC') & 
+                  data$year<=2017 & data$year>=2013)
+banks_table <- dcast(banks, Name ~ year, value.var = 'day_profit', fun.aggregate = sum)
+banks_ct <- data.matrix(banks_table)
+row.names(banks_ct) <- c('BAC', 'JPM', 'WFC')
+banks_ct <- banks_ct[,-1]
+banks_ct
+```
+
+```{r}
+chisq.test(banks_ct)
+```
+
+Заметно, что цены акций компаний из схожего сектора растут и падают коррелировано друг с другом
+
+## 3.2 Тест МакНемара
+
+Тест проводится для таблицы 2*2, в которой содержатся данные, разделенные по бинарным категориям, причем данные измеряются дважды (например, до какого-то преобразования и после, либо просто двумя разными способами) и заносятся в столбцы и строки
+
+Рассмотрим датасет, содержащий наблюдения над уровнем холестерина в крови у 18-ти людей, употреблявших особый вид маргарина без транс-жиров 
+
+```{r}
+chol <- read.csv(file='..\\Cholesterol_R.csv')
+data <- chol[,2:4]
+barplot(t(data.matrix(data)), beside=TRUE, col = rainbow(3, alpha=0.4), 
+        names.arg=chol$п.їID,
+        main='Уровень холестерина в крови', 
+        xlab='Пациенты', ylab='Уровень холестерина')
+legend('bottom', colnames(data), fill=rainbow(3, alpha=0.4))
+```
+
+
+Составим таблицу, где укажем в строках сождеражание холестерина до диеты выше и ниже порогового значения, а в столбцах сождеражание холестерина после 4 недель диеты
+
+```{r}
+lim <- 6.4
+less_less <- sum((chol$Before < lim) & (chol$After4weeks < lim))
+less_great <- sum((chol$Before < lim) & (chol$After4weeks >= lim))
+great_less <- sum((chol$Before >= lim) & (chol$After4weeks < lim))
+great_great <- sum((chol$Before >= lim) & (chol$After4weeks >= lim))
+mat_chol <- matrix(c(less_less, great_less, less_great, great_great), nrow = 2, 
+                   dimnames = list("Before" = c("Less", "Greater"),
+                    "After 4 weeks" = c("Less", "Greater")))
+mat_chol
+mcnemar.test(mat_chol)
+```
+
+p-value удовлетворяет уровню значимости 0.1, отвергаем нулевую гипотезу. То есть, диета влияет на превышение порогового значения уровня холестерина в крови
+
+## 3.3 Тест Кохрана-Мантеля-Хензеля
+
+Необходима 3-х мерная таблица. Третьим измерением добавим вид маргарина (в датасете А или В)
+
+```{r}
+lim <- 6.4
+
+less_less_A <- sum((chol$Before < lim) & (chol$After4weeks < lim) & (chol$Margarine=='A'))
+less_great_A <- sum((chol$Before < lim) & (chol$After4weeks >= lim) & (chol$Margarine=='A'))
+great_less_A <- sum((chol$Before >= lim) & (chol$After4weeks < lim) & (chol$Margarine=='A'))
+great_great_A <- sum((chol$Before >= lim) & (chol$After4weeks >= lim) & (chol$Margarine=='A'))
+
+less_less_B <- sum((chol$Before < lim) & (chol$After4weeks < lim) & (chol$Margarine=='B'))
+less_great_B <- sum((chol$Before < lim) & (chol$After4weeks >= lim) & (chol$Margarine=='B'))
+great_less_B <- sum((chol$Before >= lim) & (chol$After4weeks < lim) & (chol$Margarine=='B'))
+great_great_B <- sum((chol$Before >= lim) & (chol$After4weeks >= lim) & (chol$Margarine=='B'))
+
+arr_chol <- array(c(less_less_A, great_less_A, less_great_A, great_great_A, 
+                    less_less_B, great_less_B, less_great_B, great_great_B), 
+                  dim = c(2,2,2), 
+                  dimnames = list("Before" = c("Less", "Greater"),
+                    "After 4 weeks" = c("Less", "Greater"),
+                    "Margarine type" = c('A', 'B')))
+arr_chol
+mantelhaen.test(arr_chol) 
+```
+
+p-value мало, значит, что тип маргарина влияет на результат диеты (В оказался лучше, чем А)
+
+
+
+
+
+
