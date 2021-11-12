@@ -1,0 +1,139 @@
+---
+title: "Харинаев Артём 316 группа 08.11.21"
+output:
+  html_document:
+    df_print: paged
+---
+
+# 2. Мультиколлинеарность
+```{r}
+data <- read.csv(file='..\\dataset.csv')
+data$date <- as.Date(data$date)
+data$year <- as.numeric(format(data$date, format='%Y'))
+```
+
+```{r}
+apl <- subset(data, data$Name=='AAPL')
+int <- subset(data, data$Name=='INTC')
+nvda <- subset(data, data$Name=='NVDA')
+pfe <- subset(data, data$Name=='PFE')
+msft <- subset(data, data$Name=='MSFT')
+ndq <- subset(data, data$Name=='NDAQ')
+
+companies <- data.frame(Date=apl$date, Apple=apl$open, 
+                        Intel=int$open, NVIDIA=nvda$open, Pfizer=pfe$open,
+                        Microsoft=msft$open, Nasdaq=ndq$open)
+head(data.matrix(companies))
+```
+
+
+## 2.1 Корреляционная матрица
+```{r}
+library(corrplot)
+col4 <- colorRampPalette(c("#7F0000", "red", "#FF7F00", "yellow",
+                           "#7FFF7F", "cyan", "#007FFF", "blue","#00007F")) 
+corrplot(cor(companies[-1]), method = "shade", col = col4(20), cl.length = 21,
+         order = "AOE",  tl.col = "black", addCoef.col = "white")
+```
+
+Т.к. Pfizer - компания из другого сектора экономики, по сравнению с остальными компаниями, то логично, что коэффициенты корреляции с данной акцией ниже
+
+Корреляция между Microsoft и Nasdaq велика. Это объясняется тем, что Microsoft была одной из первых компаний, опубликовавшихся на Nasdaq, и послужила своеобразной рекламой биржи
+
+Так же заметно, что все значения достаточно велики (>0.5). Это подтверждает факт экономической связи всего рынка (экономические показатели растут и падают вместе с макроэкономикой на больших промежутках времени)
+
+
+## 2.2 VIF
+
+```{r}
+library(car)
+vif(lm(Nasdaq~., data=companies[-1]))
+```
+
+Здесь опять же заметен малый вклад Pfizer (т.к. Nasdaq - биржа, специализирующаяся на акциях высокотехнологичных компаний) и большой вклад Microsoft
+
+# 3. Форма связи между категориальными переменными 
+
+Рассмотрим связь цены акции и объема продаж, разбитых по категориям "время года" и "компании" за 2015-2017 годы Для Apple и Microsoft
+
+```{r}
+season <- function(x){ #номер времени года по номеру месяца
+  if (x %in% c(12,1,2))
+    return(1)
+  if (x %in% 3:5)
+    return(2)
+  if (x %in% 6:8)
+    return(3)
+  if (x %in% 9:11)
+    return(4)
+}
+```
+
+```{r}
+comp <- subset(data, (data$Name %in% c("AAPL", "MSFT")) & (data$year %in% 2015:2017))
+comp$season <- sapply(as.numeric(format(comp$date, format='%m')), FUN = season)
+```
+
+```{r}
+f_season <- factor(comp$season, level=1:4, 
+                   labels=c("Зима","Весна","Лето","Осень"))
+f_comp <- factor(comp$Name, levels=c("AAPL", "MSFT"), 
+                 labels=c("Apple","Microsoft"))
+
+coplot(comp$open ~ comp$volume | f_season * f_comp, 
+       ylab = c("Цена, $","Компания"),
+       xlab = c("Объем продаж","Время года"),
+       panel = function(x, y, ...) {
+         tmp <- lm(y ~ x)
+         abline(tmp)
+         points(x, y) })
+```
+
+Можно заметить, что осенью у компании Apple наиболее сильная обратная зависимость, это связано с тем, что осенью Apple проводит презентации, где представляет новые продукты, что сподвигает рынок на соврешение большого числа сделок
+
+У Microsoft же нет таких различий между временами года
+
+# 4. АКФ
+
+Построим график АКФ изменения цены на акцию NASDAQ вокруг прямой непрерывного роста
+```{r}
+ndq$ind <- 1:nrow(ndq)
+mean_line <- lm(open ~ ind, data=ndq)
+
+par(mfrow=c(1,2))
+
+plot(predict(mean_line), xlab='', ylab='Цена, $', type='l', lwd=2, main='Исходная цена')
+points(ndq$open, col='red', pch='.', cex=2)
+legend('topleft', legend=c('Прямая роста','Акция NASDAQ'), fill=c('black', 'red'))
+
+res <- ndq$open - predict(mean_line)
+plot(res, main='Колебания вокруг среднего', xlab='', ylab='Цена, $', col='red', type='l')
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(res, main='АКФ')
+pacf(res, main='Частичная АКФ')
+```
+
+# 5. Дисперсионный анализ
+
+Рассмотрим зависимость оборота акций NASDAQ от оборота акций компаний, торгующихся на этой бирже
+```{r}
+nasdaq_depend <- data.frame(Apple=(apl$open * apl$volume), 
+                            Intel=(int$open * int$volume), 
+                            NVIDIA=(nvda$open * nvda$volume), 
+                            Microsoft=(msft$open * msft$volume), 
+                            Nasdaq=(ndq$open * ndq$volume))
+head(data.matrix(nasdaq_depend))
+```
+
+
+```{r}
+lin <- lm(Nasdaq ~ ., data=nasdaq_depend)
+data.matrix(anova(lin))
+```
+
+p-value мало, что говорит о статистической значимости всех компаний в цену акции NASDAQ
+
+F value для Microsoft больше, чем для других компаний, что еще раз подтверждает мысль о большем вкладе Microsoft в акции NASDAQ
